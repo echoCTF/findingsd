@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# $OpenBSD: spamlogd,v 1.2 2011/08/08 17:13:31 robert Exp $
+
+daemon="/usr/local/sbin/findingsd"
+
+. /etc/rc.d/rc.subr
+
+rc_reload=NO
+
+rc_cmd $1
