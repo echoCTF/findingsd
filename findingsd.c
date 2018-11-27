@@ -72,6 +72,8 @@ CREATE TABLE tcpdump_bh (
 #define PCAPFSIZ    512  /* pcap filter string size */
 
 #define FINDINGSD_USER    "_findingsd"
+
+
 int debug = 1;
 
 u_int8_t  flag_debug = 0;
@@ -240,7 +242,6 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
       insertStmt=NULL;
       return -1;
     }
-
     if (mysql_stmt_prepare(insertStmt, insertQuery, sizeof(insertQuery)) > 0){
       logmsg(LOG_ERR,"failed mysql_stmt_prepare");
       mysql_stmt_close(insertStmt);
@@ -284,7 +285,7 @@ void
 usage(void)
 {
   fprintf(stderr,
-      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname]\n",
+      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-t wait_timeout]\n",
       __progname);
   exit(1);
 }
@@ -295,10 +296,12 @@ main(int argc, char **argv)
   int     ch;
   struct passwd  *pw;
   my_bool reconnect=1;
+  int wait_timeout=31536000;
+  char wait_timeoutq[512];
   char *dbuser="",*dbpass="",*dbname="echoctf",*dbhost="localhost";
   pcap_handler   phandler = logpkt_handler;
 
-  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:")) != -1) {
+  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:")) != -1) {
     switch (ch) {
       case 'D':
         flag_debug = 1;
@@ -317,6 +320,9 @@ main(int argc, char **argv)
         break;
       case 'n':
         dbname = optarg;
+        break;
+      case 't':
+        wait_timeout = atoi(optarg);
         break;
       default:
         usage();
@@ -337,15 +343,19 @@ main(int argc, char **argv)
   if (con == NULL)
       errx(1, "%s",mysql_error(con));
 
-  mysql_options(con, MYSQL_OPT_RECONNECT, &reconnect);
-
-  if (mysql_real_connect(con, dbhost,dbuser,dbpass, dbname, 0, NULL, 0) == NULL)
+  if (mysql_real_connect(con, dbhost,dbuser,dbpass, dbname, 0, NULL, CLIENT_REMEMBER_OPTIONS) == NULL)
   {
       fprintf(stderr, "%s\n", mysql_error(con));
       mysql_close(con);
       exit(1);
   }
-  if(mysql_query (con,"SET wait_timeout=31536000")!=0)
+  if (mysql_options(con, MYSQL_OPT_RECONNECT,&reconnect)) {
+      printf("MySQL Options failed: %s\n", mysql_error(con));
+  }
+
+
+  snprintf(wait_timeoutq, sizeof(wait_timeoutq),"SET wait_timeout = %d", wait_timeout);
+  if(mysql_query (con,wait_timeoutq)!=0)
   {
     fprintf(stderr, "Setting wait_timeout failed with error: %s\n", mysql_error(con));
     mysql_close(con);
