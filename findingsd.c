@@ -1,6 +1,6 @@
-/*  spamlogd.c,v 1.27  */
-
 /*
+ * Based on spamlogd.c,v 1.27
+ * ORIGINAL COPYRIGHTS
  * Copyright (c) 2006 Henning Brauer <henning@openbsd.org>
  * Copyright (c) 2006 Berk D. Demir.
  * Copyright (c) 2004-2007 Bob Beck.
@@ -22,6 +22,19 @@
  */
 
 /* watch pf log for connections, update findings entries. */
+
+/*
+DROP TABLE IF EXISTS tcpdump_bh;
+CREATE TABLE tcpdump_bh (
+  `srchw` CHAR(17) NOT NULL DEFAULT 'ff',
+  `dsthw` CHAR(17) NOT NULL DEFAULT 'ff',
+  `size` INT NOT NULL DEFAULT 0,
+  `proto` ENUM('tcp','udp','icmp','tell') default 'tcp',
+  `srcip` BIGINT UNSIGNED default 0,
+  `dstip` BIGINT UNSIGNED default 0,
+  `dstport` INT DEFAULT 0
+) ENGINE=BLACKHOLE DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
+*/
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -284,8 +297,6 @@ main(int argc, char **argv)
   my_bool reconnect=1;
   char *dbuser="",*dbpass="",*dbname="echoctf",*dbhost="localhost";
   pcap_handler   phandler = logpkt_handler;
-  if (geteuid())
-  errx(1, "need root privileges");
 
   while ((ch = getopt(argc, argv, "Dl:u:p:h:n:")) != -1) {
     switch (ch) {
@@ -311,6 +322,8 @@ main(int argc, char **argv)
         usage();
     }
   }
+  if (geteuid())
+    errx(1, "need root privileges");
 
   insertStmt=NULL;
 
@@ -322,15 +335,21 @@ main(int argc, char **argv)
   logmsg(LOG_DEBUG, "Listening on %s", pflogif);
   con = mysql_init(NULL);
   if (con == NULL)
-      errx(1, mysql_error(con));
+      errx(1, "%s",mysql_error(con));
 
-  mysql_options(&con, MYSQL_OPT_RECONNECT, &reconnect);
+  mysql_options(con, MYSQL_OPT_RECONNECT, &reconnect);
 
   if (mysql_real_connect(con, dbhost,dbuser,dbpass, dbname, 0, NULL, 0) == NULL)
   {
       fprintf(stderr, "%s\n", mysql_error(con));
       mysql_close(con);
       exit(1);
+  }
+  if(mysql_query (con,"SET wait_timeout=31536000")!=0)
+  {
+    fprintf(stderr, "Setting wait_timeout failed with error: %s\n", mysql_error(con));
+    mysql_close(con);
+    exit(1);
   }
 
   if (init_pcap() == -1)
