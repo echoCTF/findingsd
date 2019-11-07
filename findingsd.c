@@ -161,7 +161,10 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   struct protoent *pp;
   char straddr_src[40] = { '\0' }, straddr_dst[40] = { '\0' };
   u_int16_t dport=0;
-
+  time_t _tm =time(NULL );
+  struct tm * curtime = localtime ( &_tm );
+  char *timestring=asctime(curtime);
+  timestring[strlen(timestring) - 1] = 0;
   hdr = (const struct pfloghdr *)sp;
   if (hdr->length < MIN_PFLOG_HDRLEN) {
     logmsg(LOG_WARNING, "invalid pflog header length (%u/%u). "
@@ -194,7 +197,7 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   }
 
   if (straddr_dst[0] != '\0' && straddr_src[0] != '\0') {
-    logmsg(LOG_DEBUG,"SRC: %s => DST: => %s:%d, PROTO: %s", straddr_src,straddr_dst, dport, pp->p_name);
+    logmsg(LOG_DEBUG,"[%s] SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
     if (mysql_ping(con)) {
       logmsg(LOG_DEBUG,"Ping error: %s", mysql_error(con));
     } else {
