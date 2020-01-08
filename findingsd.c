@@ -23,19 +23,6 @@
 
 /* watch pf log for connections, update findings entries. */
 
-/*
-DROP TABLE IF EXISTS tcpdump_bh;
-CREATE TABLE tcpdump_bh (
-  `srchw` CHAR(17) NOT NULL DEFAULT 'ff',
-  `dsthw` CHAR(17) NOT NULL DEFAULT 'ff',
-  `size` INT NOT NULL DEFAULT 0,
-  `proto` ENUM('tcp','udp','icmp','tell') default 'tcp',
-  `srcip` BIGINT UNSIGNED default 0,
-  `dstip` BIGINT UNSIGNED default 0,
-  `dstport` INT DEFAULT 0
-) ENGINE=BLACKHOLE DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;
-*/
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -214,7 +201,7 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
   static int port[1]={0};
   static char src[15]={0},dst[15]={0},proto[6]={0};
   const char insertQuery[]=
-    "INSERT INTO tcpdump_bh ( srcip, dstip,dstport, proto) VALUES (INET_ATON(?),INET_ATON(?),?,?)";
+    "INSERT INTO findingsd ( srcip, dstip,dstport, proto) VALUES (INET_ATON(?),INET_ATON(?),?,?)";
 
 
   if (!insertStmt) {
