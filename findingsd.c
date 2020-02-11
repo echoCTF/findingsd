@@ -106,7 +106,7 @@ int
 init_pcap(void)
 {
   struct bpf_program  bpfp;
-  char  filter[PCAPFSIZ] = "ip";
+  char  filter[PCAPFSIZ] = "ip and ( (tcp[tcpflags] & (tcp-syn) != 0) or udp or icmp)";
 
   if ((hpcap = pcap_open_live(pflogif, PCAPSNAP, 1, PCAPTIMO,
       errbuf)) == NULL) {
