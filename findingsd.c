@@ -49,7 +49,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <pcap.h>
-#include <my_global.h>
+//#include <my_global.h>
 #include <mysql.h>
 
 #define MIN_PFLOG_HDRLEN  45
@@ -288,7 +288,7 @@ main(int argc, char **argv)
   my_bool reconnect=1;
   int wait_timeout=31536000;
   char wait_timeoutq[512];
-  char *dbuser="",*dbpass="",*dbname="echoctf",*dbhost="localhost";
+  char *dbuser,*dbpass,*dbname="echoctf",*dbhost="localhost";
   pcap_handler   phandler = logpkt_handler;
 
   while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:")) != -1) {
