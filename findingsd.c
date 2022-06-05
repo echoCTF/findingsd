@@ -22,6 +22,7 @@
  */
 
 /* watch pf log for connections, update findings entries. */
+#include <libmemcached/memcached.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -58,13 +59,15 @@
 #define PCAPOPTZ    1  /* optimize filter */
 #define PCAPFSIZ    512  /* pcap filter string size */
 
-#define FINDINGSD_USER    "_findingsd"
-
 
 int debug = 1;
+memcached_server_st *servers = NULL;
+memcached_st *memc;
+memcached_return rc;
 
 u_int8_t  flag_debug = 0;
-char      *pflogif = "pflog0";
+char      *pflogif = "pflog1";
+char      *FINDINGSD_USER = "_findingsd";
 char      errbuf[PCAP_ERRBUF_SIZE];
 pcap_t    *hpcap = NULL;
 struct syslog_data   sdata  = SYSLOG_DATA_INIT;
@@ -143,6 +146,11 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   sa_family_t        af;
   u_int8_t           hdrlen;
   u_int32_t          caplen = h->caplen;
+  char key[128];
+  char *retrieved_value;
+  size_t value_length;
+  uint32_t flags;
+
   const struct ip    *ip = NULL;
   const struct pfloghdr  *hdr;
   struct protoent *pp;
@@ -183,11 +191,22 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
     }
   }
 
-  if (straddr_dst[0] != '\0' && straddr_src[0] != '\0') {
-    logmsg(LOG_DEBUG,"[%s] SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
-    if (mysql_ping(con)) {
-      logmsg(LOG_DEBUG,"Ping error: %s", mysql_error(con));
-    } else {
+  if (straddr_dst[0] != '\0' && straddr_src[0] != '\0')
+  {
+    logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
+    sprintf(key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
+    retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, &rc);
+    rc = memcached_set(memc, key, strlen(key), ".", 1, (time_t)60*5, (uint32_t)0);
+    if (retrieved_value != NULL)
+    {
+      //logmsg(LOG_DEBUG,"Key retrieved %s => %s\n",key,retrieved_value);
+      free(retrieved_value);
+    }
+    else
+    {
+      logmsg(LOG_DEBUG,"Setting key %s => %s\n",key,retrieved_value);
+      if (rc != MEMCACHED_SUCCESS)
+        logmsg(LOG_ERR, "Couldn't set key: %s => ., %s\n",key, memcached_strerror(memc, rc));
       dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
     }
   }
@@ -286,12 +305,12 @@ main(int argc, char **argv)
   int     ch;
   struct passwd  *pw;
   my_bool reconnect=1;
-  int wait_timeout=31536000;
+  int wait_timeout=31536000,memport=0;
   char wait_timeoutq[512];
-  char *dbuser,*dbpass,*dbname="echoctf",*dbhost="localhost";
+  char *dbuser="root",*dbpass="",*dbname="echoCTF",*dbhost="localhost", *host="/var/run/memcached/memcached.sock";
   pcap_handler   phandler = logpkt_handler;
 
-  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:")) != -1) {
+  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:s:m:")) != -1) {
     switch (ch) {
       case 'D':
         flag_debug = 1;
@@ -311,6 +330,12 @@ main(int argc, char **argv)
       case 'n':
         dbname = optarg;
         break;
+      case 's':
+        host = optarg;
+        break;
+      case 'm':
+        memport = atoi(optarg);
+        break;
       case 't':
         wait_timeout = atoi(optarg);
         break;
@@ -327,6 +352,14 @@ main(int argc, char **argv)
   signal(SIGINT , sighandler_close);
   signal(SIGQUIT, sighandler_close);
   signal(SIGTERM, sighandler_close);
+
+  memc = memcached_create(NULL);
+  servers = memcached_server_list_append(servers, host, memport, &rc);
+  rc = memcached_server_push(memc, servers);
+  if (rc != MEMCACHED_SUCCESS)
+    errx(1, "Couldn't add server: %s\n", memcached_strerror(memc, rc));
+  else
+    logmsg(LOG_DEBUG, "Connected to memcached");
 
   logmsg(LOG_DEBUG, "Listening on %s", pflogif);
   con = mysql_init(NULL);
