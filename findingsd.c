@@ -196,19 +196,20 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
     logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
     sprintf(key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
     retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, &rc);
-    rc = memcached_set(memc, key, strlen(key), ".", 1, (time_t)60*5, (uint32_t)0);
-    if (retrieved_value != NULL)
+    if (value_length>0)
     {
-      //logmsg(LOG_DEBUG,"Key retrieved %s => %s\n",key,retrieved_value);
+      logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,retrieved_value);
       free(retrieved_value);
     }
     else
     {
-      logmsg(LOG_DEBUG,"Setting key %s => %s\n",key,retrieved_value);
+      logmsg(LOG_DEBUG,"Setting key %s => %s",key,retrieved_value);
+      rc = memcached_set(memc, key, strlen(key), ".", 1, (time_t)60*5, (uint32_t)0);
       if (rc != MEMCACHED_SUCCESS)
-        logmsg(LOG_ERR, "Couldn't set key: %s => ., %s\n",key, memcached_strerror(memc, rc));
+        logmsg(LOG_ERR, "Couldn't set key: %s => ., %s",key, memcached_strerror(memc, rc));
       dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
     }
+    value_length=0;
   }
 }
 
