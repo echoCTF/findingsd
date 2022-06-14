@@ -43,6 +43,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <pwd.h>
+#include <grp.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -68,6 +69,7 @@ memcached_return rc;
 u_int8_t  flag_debug = 0;
 char      *pflogif = "pflog1";
 char      *FINDINGSD_USER = "_findingsd";
+char      *FINDINGSD_GROUP = "_findingsd";
 char      errbuf[PCAP_ERRBUF_SIZE];
 pcap_t    *hpcap = NULL;
 struct syslog_data   sdata  = SYSLOG_DATA_INIT;
@@ -146,9 +148,9 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   sa_family_t        af;
   u_int8_t           hdrlen;
   u_int32_t          caplen = h->caplen;
-  char key[128];
+  char *key;
   char *retrieved_value;
-  size_t value_length;
+  size_t value_length,n;
   uint32_t flags;
 
   const struct ip    *ip = NULL;
@@ -194,22 +196,34 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   if (straddr_dst[0] != '\0' && straddr_src[0] != '\0')
   {
     logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
-    sprintf(key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
-    retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, &rc);
-    if (value_length>0)
+    // Our key format PROTO:SRCIP:DSTIP:DSTPORT
+    n = asprintf(&key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
+    // Check if the key exists
+    rc = memcached_exist(memc,key, n);
+    //retrieved_value = memcached_get(memc, key, n, &value_length, &flags, &rc);
+    // if the key exists
+    if (rc == MEMCACHED_SUCCESS)
     {
-      logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,retrieved_value);
+      // just refresh the expiration ignore errors
+      rc = memcached_touch(memc,key,n,(time_t)60);
+      //rc = memcached_set(memc, key, n, ".", 1, (time_t)60, (uint32_t)0);
+      memcached_strerror(memc, rc);
+      logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,memcached_strerror(memc, rc));
       free(retrieved_value);
     }
     else
     {
-      logmsg(LOG_DEBUG,"Setting key %s => %s",key,retrieved_value);
-      rc = memcached_set(memc, key, strlen(key), ".", 1, (time_t)60*5, (uint32_t)0);
-      if (rc != MEMCACHED_SUCCESS)
-        logmsg(LOG_ERR, "Couldn't set key: %s => ., %s",key, memcached_strerror(memc, rc));
-      dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
+        logmsg(LOG_DEBUG,"Key %s => %s",key,memcached_strerror(memc, rc));
+
+        // Set the key to a dummy minimal value of `.`
+        rc = memcached_set(memc, key, n, ".", 1, (time_t)60, (uint32_t)0);
+        if (rc != MEMCACHED_SUCCESS)
+          logmsg(LOG_ERR, "Couldn't set key: %s => ., %s",key, memcached_strerror(memc, rc));
+
+        dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
     }
-    value_length=0;
+
+    free(key);
   }
 }
 
@@ -295,7 +309,7 @@ void
 usage(void)
 {
   fprintf(stderr,
-      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-t wait_timeout]\n",
+      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-t wait_timeout] [-U username] [-G groupnam]\n",
       __progname);
   exit(1);
 }
@@ -305,13 +319,14 @@ main(int argc, char **argv)
 {
   int     ch;
   struct passwd  *pw;
+  struct group *gw;
   my_bool reconnect=1;
   int wait_timeout=31536000,memport=0;
   char wait_timeoutq[512];
   char *dbuser="root",*dbpass="",*dbname="echoCTF",*dbhost="localhost", *host="/var/run/memcached/memcached.sock";
   pcap_handler   phandler = logpkt_handler;
 
-  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:s:m:")) != -1) {
+  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:s:m:U:G")) != -1) {
     switch (ch) {
       case 'D':
         flag_debug = 1;
@@ -321,6 +336,12 @@ main(int argc, char **argv)
         break;
       case 'u':
         dbuser = optarg;
+        break;
+      case 'U':
+        FINDINGSD_USER = optarg;
+        break;
+      case 'G':
+        FINDINGSD_GROUP = optarg;
         break;
       case 'p':
         dbpass = optarg;
@@ -393,8 +414,11 @@ main(int argc, char **argv)
   if ((pw = getpwnam(FINDINGSD_USER)) == NULL)
     errx(1, "no such user %s", FINDINGSD_USER);
 
-  if (setgroups(1, &pw->pw_gid) ||
-      setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+  if ((gw = getgrnam(FINDINGSD_GROUP)) == NULL)
+    errx(1, "no such group %s", FINDINGSD_GROUP);
+
+  if (setgroups(1, &gw->gr_gid) ||
+      setresgid(gw->gr_gid, gw->gr_gid, gw->gr_gid) ||
       setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid)) {
     err(1, "failed to drop privs");
   }
