@@ -205,18 +205,17 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
     if (rc == MEMCACHED_SUCCESS)
     {
       // just refresh the expiration ignore errors
-      rc = memcached_touch(memc,key,n,(time_t)60);
+      //rc = memcached_touch(memc,key,n,(time_t)3);
       //rc = memcached_set(memc, key, n, ".", 1, (time_t)60, (uint32_t)0);
-      memcached_strerror(memc, rc);
+      //memcached_strerror(memc, rc);
       logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,memcached_strerror(memc, rc));
-      free(retrieved_value);
     }
     else
     {
         logmsg(LOG_DEBUG,"Key %s => %s",key,memcached_strerror(memc, rc));
 
         // Set the key to a dummy minimal value of `.`
-        rc = memcached_set(memc, key, n, ".", 1, (time_t)60, (uint32_t)0);
+        rc = memcached_set(memc, key, n, ".", 1, (time_t)10, (uint32_t)0);
         if (rc != MEMCACHED_SUCCESS)
           logmsg(LOG_ERR, "Couldn't set key: %s => ., %s",key, memcached_strerror(memc, rc));
 
