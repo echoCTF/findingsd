@@ -67,6 +67,7 @@ memcached_st *memc;
 memcached_return rc;
 
 u_int8_t  flag_debug = 0;
+time_t    keylifetime = 10;
 char      *pflogif = "pflog1";
 char      *FINDINGSD_USER = "_findingsd";
 char      *FINDINGSD_GROUP = "_findingsd";
@@ -196,28 +197,26 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   if (straddr_dst[0] != '\0' && straddr_src[0] != '\0')
   {
     logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
+
     // Our key format PROTO:SRCIP:DSTIP:DSTPORT
     n = asprintf(&key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
+
     // Check if the key exists
     rc = memcached_exist(memc,key, n);
-    //retrieved_value = memcached_get(memc, key, n, &value_length, &flags, &rc);
-    // if the key exists
+
+    // if the key exists dont do anything
     if (rc == MEMCACHED_SUCCESS)
     {
-      // just refresh the expiration ignore errors
-      //rc = memcached_touch(memc,key,n,(time_t)3);
-      //rc = memcached_set(memc, key, n, ".", 1, (time_t)60, (uint32_t)0);
-      //memcached_strerror(memc, rc);
       logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,memcached_strerror(memc, rc));
     }
     else
     {
-        logmsg(LOG_DEBUG,"Key %s => %s",key,memcached_strerror(memc, rc));
+        logmsg(LOG_DEBUG,"Setting key %s => %s for %dsec",key,memcached_strerror(memc, rc),keylifetime);
 
         // Set the key to a dummy minimal value of `.`
-        rc = memcached_set(memc, key, n, ".", 1, (time_t)10, (uint32_t)0);
+        rc = memcached_set(memc, key, n, ".", 1, (time_t)keylifetime, (uint32_t)0);
         if (rc != MEMCACHED_SUCCESS)
-          logmsg(LOG_ERR, "Couldn't set key: %s => ., %s",key, memcached_strerror(memc, rc));
+          logmsg(LOG_ERR, "Couldn't set key: %s to value '.' => %s",key, memcached_strerror(memc, rc));
 
         dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
     }
@@ -308,7 +307,7 @@ void
 usage(void)
 {
   fprintf(stderr,
-      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-t wait_timeout] [-U username] [-G groupnam]\n",
+      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-w db_wait_timeout] [-k keylifetime] [-U username] [-G groupnam]\n",
       __progname);
   exit(1);
 }
@@ -325,7 +324,7 @@ main(int argc, char **argv)
   char *dbuser="root",*dbpass="",*dbname="echoCTF",*dbhost="localhost", *host="/var/run/memcached/memcached.sock";
   pcap_handler   phandler = logpkt_handler;
 
-  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:t:s:m:U:G")) != -1) {
+  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:w:k:s:m:U:G")) != -1) {
     switch (ch) {
       case 'D':
         flag_debug = 1;
@@ -357,7 +356,10 @@ main(int argc, char **argv)
       case 'm':
         memport = atoi(optarg);
         break;
-      case 't':
+      case 'k':
+        keylifetime = atoi(optarg);
+        break;
+      case 'w':
         wait_timeout = atoi(optarg);
         break;
       default:
