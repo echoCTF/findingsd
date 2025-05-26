@@ -6,5 +6,6 @@ daemon="/usr/local/sbin/findingsd"
 . /etc/rc.d/rc.subr
 
 rc_reload=NO
-
+# sleep 3 seconds to give mariadb time to start
+sleep 3
 rc_cmd $1
