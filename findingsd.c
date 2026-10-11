@@ -156,13 +156,10 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 
   const struct ip    *ip = NULL;
   const struct pfloghdr  *hdr;
-  const char *proto_name = NULL;
+  const char *proto_name = "unknown";
   char straddr_src[40] = { '\0' }, straddr_dst[40] = { '\0' };
   u_int16_t dport=0;
-  time_t _tm =time(NULL );
-  struct tm * curtime = localtime ( &_tm );
-  char *timestring=asctime(curtime);
-  timestring[strlen(timestring) - 1] = 0;
+
   hdr = (const struct pfloghdr *)sp;
   if (hdr->length < MIN_PFLOG_HDRLEN) {
     logmsg(LOG_WARNING, "invalid pflog header length (%u/%u). "
@@ -174,6 +171,11 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
   if (caplen < hdrlen) {
     logmsg(LOG_WARNING, "pflog header larger than caplen (%u/%u). "
       "packet dropped.", hdrlen, caplen);
+    return;
+  }
+
+  if (hdr->rewritten) {
+    logmsg(LOG_DEBUG, "translated packet on %s, skipping", pflogif);
     return;
   }
 
@@ -196,29 +198,38 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 
   if (straddr_dst[0] != '\0' && straddr_src[0] != '\0')
   {
-    logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, proto_name);
+    if (flag_debug) {
+      time_t _tm = time(NULL);
+      struct tm *curtime = localtime(&_tm);
+      if (curtime != NULL) {
+        char *timestring = asctime(curtime);
+        timestring[strlen(timestring) - 1] = 0;
+        logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, proto_name);
+      }
+    }
 
     // Our key format PROTO:SRCIP:DSTIP:DSTPORT
     n = asprintf(&key,"%s:%s:%s:%d",proto_name,straddr_src,straddr_dst,dport);
 
-    // Check if the key exists
-    rc = memcached_exist(memc,key, n);
+    rc = memcached_add(memc, key, n, ".", 1, (time_t)keylifetime, (uint32_t)0);
 
     // if the key exists dont do anything
-    if (rc == MEMCACHED_SUCCESS)
+    if (rc == MEMCACHED_NOTSTORED)
     {
-      logmsg(LOG_DEBUG,"Key retrieved %s => %s",key,memcached_strerror(memc, rc));
+      /* key already there, deduped */
+      if (flag_debug)
+        logmsg(LOG_DEBUG,"Key exists %s => %s",key,memcached_strerror(memc, rc));
+    }
+    else if (rc != MEMCACHED_SUCCESS)
+    {
+      if (flag_debug) logmsg(LOG_ERR,"memcached unavailable (%s), skipping packet", memcached_strerror(memc, rc));
     }
     else
     {
-        logmsg(LOG_DEBUG,"Setting key %s => %s for %dsec",key,memcached_strerror(memc, rc),keylifetime);
+      if (flag_debug)
+        logmsg(LOG_DEBUG,"Added key %s => %s for %dsec",key,memcached_strerror(memc, rc),(int)keylifetime);
 
-        // Set the key to a dummy minimal value of `.`
-        rc = memcached_set(memc, key, n, ".", 1, (time_t)keylifetime, (uint32_t)0);
-        if (rc != MEMCACHED_SUCCESS)
-          logmsg(LOG_ERR, "Couldn't set key: %s to value '.' => %s",key, memcached_strerror(memc, rc));
-
-        dbupdate(straddr_src,straddr_dst, dport, (char *)proto_name);
+      dbupdate(straddr_src,straddr_dst, dport, (char *)proto_name);
     }
 
     free(key);
@@ -295,8 +306,7 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
   p_nameLen=strlen(proto);
   if (mysql_stmt_execute(insertStmt))
   {
-    fprintf(stderr, " mysql_stmt_execute(), 1 failed\n");
-    fprintf(stderr, " %s\n", mysql_stmt_error(insertStmt));
+    logmsg(LOG_ERR, "mysql_stmt_execute failed: %s", mysql_stmt_error(insertStmt));
     return -1;
   }
 
@@ -307,7 +317,7 @@ void
 usage(void)
 {
   fprintf(stderr,
-      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-w db_wait_timeout] [-k keylifetime] [-U username] [-G groupnam]\n",
+      "usage: %s [-D] [-l pflog_interface] [-u dbuser] [-p dbpassword] [-h dbhost] [-n dbname] [-w db_wait_timeout] [-k keylifetime] [-s memcached_socket] [-m memcached_port] [-U username] [-G groupname]\n",
       __progname);
   exit(1);
 }
@@ -358,6 +368,8 @@ main(int argc, char **argv)
         break;
       case 'k':
         keylifetime = atoi(optarg);
+        if (keylifetime < 0)
+          keylifetime = 0;
         break;
       case 'w':
         wait_timeout = atoi(optarg);
