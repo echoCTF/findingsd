@@ -30,7 +30,7 @@ mysql mydatabase<findingsd.sql
 
 ### Compile, install and start the service
 ```
-git clone https://github.com/findingsd.git
+git clone https://github.com/echoctf/findingsd.git
 cd findingsd
 make
 install -o root -g wheel -m 0555 findingsd /usr/local/sbin/findingsd
