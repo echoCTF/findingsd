@@ -156,7 +156,7 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 
   const struct ip    *ip = NULL;
   const struct pfloghdr  *hdr;
-  struct protoent *pp;
+  const char *proto_name = NULL;
   char straddr_src[40] = { '\0' }, straddr_dst[40] = { '\0' };
   u_int16_t dport=0;
   time_t _tm =time(NULL );
@@ -184,22 +184,22 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
     inet_ntop(af, &ip->ip_dst, straddr_dst,sizeof(straddr_dst));
     if (ip->ip_p == IPPROTO_UDP) {
         dport = ntohs(hdr->dport);
-        pp=getprotobynumber(IPPROTO_UDP);
+        proto_name = "udp";
     } else if (ip->ip_p == IPPROTO_ICMP) {
         dport = 0;
-        pp=getprotobynumber(IPPROTO_ICMP);
+        proto_name = "icmp";
     } else if (ip->ip_p == IPPROTO_TCP) {
         dport = ntohs(hdr->dport);
-        pp=getprotobynumber(IPPROTO_TCP);
+        proto_name = "tcp";
     }
   }
 
   if (straddr_dst[0] != '\0' && straddr_src[0] != '\0')
   {
-    logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, pp->p_name);
+    logmsg(LOG_DEBUG,"[%s] Received SRC: %s => DST: => %s:%d, PROTO: %s",timestring,straddr_src,straddr_dst, dport, proto_name);
 
     // Our key format PROTO:SRCIP:DSTIP:DSTPORT
-    n = asprintf(&key,"%s:%s:%s:%d",pp->p_name,straddr_src,straddr_dst,dport);
+    n = asprintf(&key,"%s:%s:%s:%d",proto_name,straddr_src,straddr_dst,dport);
 
     // Check if the key exists
     rc = memcached_exist(memc,key, n);
@@ -218,7 +218,7 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
         if (rc != MEMCACHED_SUCCESS)
           logmsg(LOG_ERR, "Couldn't set key: %s to value '.' => %s",key, memcached_strerror(memc, rc));
 
-        dbupdate(straddr_src,straddr_dst, dport, pp->p_name);
+        dbupdate(straddr_src,straddr_dst, dport, (char *)proto_name);
     }
 
     free(key);
