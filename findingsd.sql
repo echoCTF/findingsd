@@ -4,13 +4,15 @@ SET time_zone = "+00:00";
 SET NAMES utf8 COLLATE 'utf8_unicode_ci';
 
 DROP TABLE IF EXISTS findingsd;
-CREATE TABLE findingsd (
-  id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-  srchw CHAR(17) NOT NULL DEFAULT 'ff',
-  dsthw CHAR(17) NOT NULL DEFAULT 'ff',
-  `size` INT NOT NULL DEFAULT 0,
-  proto ENUM('tcp','udp','icmp','tell') default 'tcp',
-  srcip BIGINT UNSIGNED default 0,
-  dstip BIGINT UNSIGNED default 0,
-  dstport INT DEFAULT 0
-) ENGINE=INNODB CHARSET=utf8 COLLATE=utf8_unicode_ci ;
+CREATE TABLE IF NOT EXISTS `findingsd` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ts` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `srchw` bigint(20) unsigned DEFAULT NULL,
+  `srcip` int(10) unsigned DEFAULT NULL,
+  `dsthw` bigint(20) unsigned DEFAULT NULL,
+  `dstip` int(10) unsigned DEFAULT NULL,
+  `dstport` smallint(5) unsigned DEFAULT NULL,
+  `proto` char(6) DEFAULT NULL,
+  `size` int(10) unsigned DEFAULT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB CHARSET=utf8 COLLATE=utf8_unicode_ci;
