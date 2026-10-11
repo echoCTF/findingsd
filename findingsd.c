@@ -312,6 +312,8 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
 	if (mysql_stmt_execute(insertStmt)) {
 		logmsg(LOG_ERR, "mysql_stmt_execute failed: %s",
 		    mysql_stmt_error(insertStmt));
+		mysql_stmt_close(insertStmt);
+		insertStmt = NULL;
 		return -1;
 	}
 
@@ -408,6 +410,11 @@ main(int argc, char **argv)
 	if (con == NULL)
 		errx(1, "mysql_init failed");
 
+	snprintf(wait_timeoutq, sizeof(wait_timeoutq), "SET wait_timeout = %d",
+	    wait_timeout);
+	if (mysql_options(con, MYSQL_INIT_COMMAND, wait_timeoutq))
+		errx(1, "MYSQL_INIT_COMMAND failed: %s", mysql_error(con));
+
 	if (mysql_real_connect(con, dbhost, dbuser, dbpass, dbname, 0, NULL,
 	    CLIENT_REMEMBER_OPTIONS) == NULL) {
 		fprintf(stderr, "%s\n", mysql_error(con));
@@ -418,8 +425,6 @@ main(int argc, char **argv)
 		printf("MySQL Options failed: %s\n", mysql_error(con));
 	}
 
-	snprintf(wait_timeoutq, sizeof(wait_timeoutq), "SET wait_timeout = %d",
-	    wait_timeout);
 	if (mysql_query(con, wait_timeoutq) != 0) {
 		fprintf(stderr, "Setting wait_timeout failed with error: %s\n",
 		    mysql_error(con));
