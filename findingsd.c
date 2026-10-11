@@ -231,7 +231,7 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
   static MYSQL_BIND insertBinds[4];
   static unsigned long srcLen=0,dstLen=0,p_nameLen=0;
   static int port[1]={0};
-  static char src[15]={0},dst[15]={0},proto[6]={0};
+  static char src[INET_ADDRSTRLEN]={0},dst[INET_ADDRSTRLEN]={0},proto[6]={0};
   const char insertQuery[]=
     "INSERT INTO findingsd ( srcip, dstip,dstport, proto) VALUES (INET_ATON(?),INET_ATON(?),?,?)";
 
@@ -324,7 +324,7 @@ main(int argc, char **argv)
   char *dbuser="root",*dbpass="",*dbname="echoCTF",*dbhost="localhost", *host="/var/run/memcached/memcached.sock";
   pcap_handler   phandler = logpkt_handler;
 
-  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:w:k:s:m:U:G")) != -1) {
+  while ((ch = getopt(argc, argv, "Dl:u:p:h:n:w:k:s:m:U:G:")) != -1) {
     switch (ch) {
       case 'D':
         flag_debug = 1;
@@ -374,6 +374,7 @@ main(int argc, char **argv)
 
   signal(SIGINT , sighandler_close);
   signal(SIGQUIT, sighandler_close);
+  signal(SIGPIPE, sighandler_close);
   signal(SIGTERM, sighandler_close);
 
   memc = memcached_create(NULL);
