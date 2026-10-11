@@ -150,7 +150,8 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 	u_int32_t caplen = h->caplen;
 	char *key;
 	char *retrieved_value;
-	size_t value_length, n;
+	size_t value_length;
+	int n;
 	uint32_t flags;
 
 	const struct ip *ip = NULL;
@@ -212,6 +213,11 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
     // Our key format PROTO:SRCIP:DSTIP:DSTPORT
 		n = asprintf(&key, "%s:%s:%s:%d", proto_name, straddr_src,
 		    straddr_dst, dport);
+		if (n == -1) {
+			logmsg(LOG_ERR, "asprintf: %s, skipping packet",
+			    strerror(errno));
+			return;
+		}
 
 		rc = memcached_add(memc, key, n, ".", 1, (time_t)keylifetime,
 		    (uint32_t)0);
