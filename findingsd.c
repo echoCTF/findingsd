@@ -168,9 +168,11 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 	}
 	hdrlen = BPF_WORDALIGN(hdr->length);
 
-	if (caplen < hdrlen) {
-		logmsg(LOG_WARNING, "pflog header larger than caplen (%u/%u). "
-		    "packet dropped.", hdrlen, caplen);
+	if (caplen < hdrlen + sizeof(struct ip)) {
+		logmsg(LOG_WARNING,
+		    "pflog+IP header larger than caplen (%u/%u). "
+		    "packet dropped.",
+		    (u_int32_t)(hdrlen + sizeof(struct ip)), caplen);
 		return;
 	}
 
@@ -254,7 +256,7 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
 	static unsigned long srcLen = 0, dstLen = 0, p_nameLen = 0;
 	static int port[1] = {0};
 	static char src[INET_ADDRSTRLEN] = {0}, dst[INET_ADDRSTRLEN] = {0},
-		    proto[6] = {0};
+		    proto[8] = {0};
 	const char insertQuery[] =
 	    "INSERT INTO findingsd ( srcip, dstip,dstport, proto) VALUES (INET_ATON(?),INET_ATON(?),?,?)";
 

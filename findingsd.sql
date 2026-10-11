@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS `findingsd` (
   `dsthw` bigint(20) unsigned DEFAULT NULL,
   `dstip` int(10) unsigned DEFAULT NULL,
   `dstport` smallint(5) unsigned DEFAULT NULL,
-  `proto` char(6) DEFAULT NULL,
+  `proto` char(8) DEFAULT NULL,
   `size` int(10) unsigned DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB CHARSET=utf8 COLLATE=utf8_unicode_ci;
