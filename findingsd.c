@@ -388,7 +388,7 @@ main(int argc, char **argv)
   logmsg(LOG_DEBUG, "Listening on %s", pflogif);
   con = mysql_init(NULL);
   if (con == NULL)
-      errx(1, "%s",mysql_error(con));
+      errx(1, "mysql_init failed");
 
   if (mysql_real_connect(con, dbhost,dbuser,dbpass, dbname, 0, NULL, CLIENT_REMEMBER_OPTIONS) == NULL)
   {
