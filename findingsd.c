@@ -223,10 +223,9 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 				logmsg(LOG_DEBUG, "Key exists %s => %s", key,
 				    memcached_strerror(memc, rc));
 		} else if (rc != MEMCACHED_SUCCESS) {
-			if (flag_debug)
-				logmsg(LOG_ERR,
-				    "memcached unavailable (%s), skipping packet",
-				    memcached_strerror(memc, rc));
+			logmsg(LOG_ERR,
+			    "memcached unavailable (%s), skipping packet",
+			    memcached_strerror(memc, rc));
 		} else {
 			if (flag_debug)
 				logmsg(LOG_DEBUG,
