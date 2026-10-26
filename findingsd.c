@@ -148,7 +148,7 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 	sa_family_t af;
 	u_int8_t hdrlen;
 	u_int32_t caplen = h->caplen;
-	char *key;
+	char key[64];
 	char *retrieved_value;
 	size_t value_length;
 	int n;
@@ -213,13 +213,10 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 		}
 
     // Our key format PROTO:SRCIP:DSTIP:DSTPORT
-		n = asprintf(&key, "%s:%s:%s:%d", proto_name, straddr_src,
-		    straddr_dst, dport);
-		if (n == -1) {
-			logmsg(LOG_ERR, "asprintf: %s, skipping packet",
-			    strerror(errno));
+		n = snprintf(key, sizeof(key), "%s:%s:%s:%d", proto_name,
+		    straddr_src, straddr_dst, dport);
+		if (n < 0 || (size_t)n >= sizeof(key))
 			return;
-		}
 
 		rc = memcached_add(memc, key, n, ".", 1, (time_t)keylifetime,
 		    (uint32_t)0);
@@ -244,8 +241,6 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 			dbupdate(ntohl(ip->ip_src.s_addr),
 			    ntohl(ip->ip_dst.s_addr), dport, (char *)proto_name);
 		}
-
-		free(key);
 	}
 }
 
