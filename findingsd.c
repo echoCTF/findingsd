@@ -422,13 +422,6 @@ main(int argc, char **argv)
 		printf("MySQL Options failed: %s\n", mysql_error(con));
 	}
 
-	if (mysql_query(con, wait_timeoutq) != 0) {
-		fprintf(stderr, "Setting wait_timeout failed with error: %s\n",
-		    mysql_error(con));
-		mysql_close(con);
-		exit(1);
-	}
-
 	if (init_pcap() == -1)
 		err(1, "couldn't initialize pcap");
 
