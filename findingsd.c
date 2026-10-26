@@ -55,7 +55,7 @@
 #include <mysql.h>
 
 #define MIN_PFLOG_HDRLEN  45
-#define PCAPSNAP    512
+#define PCAPSNAP    128
 #define PCAPTIMO    500  /* ms */
 #define PCAPOPTZ    1  /* optimize filter */
 #define PCAPFSIZ    512  /* pcap filter string size */
@@ -394,6 +394,8 @@ main(int argc, char **argv)
 	signal(SIGTERM, sighandler_close);
 
 	memc = memcached_create(NULL);
+	memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_CONNECT_TIMEOUT, 100);
+	memcached_behavior_set(memc, MEMCACHED_BEHAVIOR_POLL_TIMEOUT, 100);
 	servers = memcached_server_list_append(servers, host, memport, &rc);
 	rc = memcached_server_push(memc, servers);
 	if (rc != MEMCACHED_SUCCESS)
