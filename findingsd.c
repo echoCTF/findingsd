@@ -81,7 +81,7 @@ void logmsg(int, const char *, ...);
 void sighandler_close(int);
 int init_pcap(void);
 void logpkt_handler(u_char *, const struct pcap_pkthdr *, const u_char *);
-int dbupdate(char *, char *, u_int16_t, char *);
+int dbupdate(u_int32_t, u_int32_t, u_int16_t, char *);
 __dead void usage(void);
 
 void
@@ -241,8 +241,8 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 				    memcached_strerror(memc, rc),
 				    (int)keylifetime);
 
-			dbupdate(straddr_src, straddr_dst, dport,
-			    (char *)proto_name);
+			dbupdate(ntohl(ip->ip_src.s_addr),
+			    ntohl(ip->ip_dst.s_addr), dport, (char *)proto_name);
 		}
 
 		free(key);
@@ -250,28 +250,26 @@ logpkt_handler(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 }
 
 int
-dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
+dbupdate(u_int32_t ip_src, u_int32_t ip_dst, u_int16_t port_dst, char *p_name)
 {
 	static MYSQL_BIND insertBinds[4];
-	static unsigned long srcLen = 0, dstLen = 0, p_nameLen = 0;
+	static unsigned long p_nameLen = 0;
 	static int port[1] = {0};
-	static char src[INET_ADDRSTRLEN] = {0}, dst[INET_ADDRSTRLEN] = {0},
-		    proto[8] = {0};
+	static u_int32_t src = 0, dst = 0;
+	static char proto[8] = {0};
 	const char insertQuery[] =
-	    "INSERT INTO findingsd ( srcip, dstip,dstport, proto) VALUES (INET_ATON(?),INET_ATON(?),?,?)";
+	    "INSERT INTO findingsd ( srcip, dstip,dstport, proto) VALUES (?,?,?,?)";
 
 	if (!insertStmt) {
 		memset(insertBinds, 0, sizeof(insertBinds));
 
-		insertBinds[0].buffer_type = MYSQL_TYPE_STRING;
-		insertBinds[0].buffer = (char *)src;
-		insertBinds[0].buffer_length = sizeof(src);
-		insertBinds[0].length = &srcLen;
+		insertBinds[0].buffer_type = MYSQL_TYPE_LONG;
+		insertBinds[0].buffer = &src;
+		insertBinds[0].is_unsigned = 1;
 
-		insertBinds[1].buffer_type = MYSQL_TYPE_STRING;
-		insertBinds[1].buffer = dst;
-		insertBinds[1].buffer_length = sizeof(dst);
-		insertBinds[1].length = &dstLen;
+		insertBinds[1].buffer_type = MYSQL_TYPE_LONG;
+		insertBinds[1].buffer = &dst;
+		insertBinds[1].is_unsigned = 1;
 
 		insertBinds[2].buffer_type = MYSQL_TYPE_LONG;
 		insertBinds[2].buffer = port;
@@ -304,18 +302,14 @@ dbupdate(char *ip_src, char *ip_dst, u_int16_t port_dst, char *p_name)
 		}
 	}
 
-	memset(src, 0, sizeof(src));
-	memset(dst, 0, sizeof(dst));
 	memset(proto, 0, sizeof(proto));
 	memset(port, 0, sizeof(port));
 
-	strncpy(dst, ip_dst, sizeof(dst));
-	strncpy(src, ip_src, sizeof(src));
+	src = ip_src;
+	dst = ip_dst;
 	strncpy(proto, p_name, sizeof(proto));
 	port[0] = port_dst;
 
-	dstLen = strlen(dst);
-	srcLen = strlen(src);
 	p_nameLen = strlen(proto);
 	if (mysql_stmt_execute(insertStmt)) {
 		logmsg(LOG_ERR, "mysql_stmt_execute failed: %s",
