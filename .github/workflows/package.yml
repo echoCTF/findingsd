@@ -1,0 +1,201 @@
+name: package
+
+# Builds an OpenBSD package (pkg_add-able .tgz) of findingsd for each
+# OpenBSD release and publishes one GitHub release per release+version.
+#
+# Naming follows the obsd-binaries conventions:
+#   tag:   findingsd-<version>[p<revision>]-openbsd-<release>
+#   asset: findingsd-<version>[p<revision>].tgz
+# The asset name must equal the package name inside it, or pkg_add fails
+# with "Package name is not consistent". If a tag ever gets burned (for
+# example by an immutable release), bump the revision to get a fresh one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      openbsd:
+        description: "OpenBSD release to build for"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - "7.9"
+          - "8.0"
+      version:
+        description: "Package version, e.g. 0.0.1 or v0.0.1. Empty: the tag you run from, else the latest v* tag, else 0.0.1."
+        required: false
+        default: ""
+        type: string
+      revision:
+        description: "Package REVISION, e.g. 0 or p0. Empty: no pN suffix."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  findingsd-pkg:
+    name: findingsd (OpenBSD ${{ matrix.openbsd }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        openbsd: ${{ fromJSON(inputs.openbsd == 'all' && '["7.9", "8.0"]' || format('["{0}"]', inputs.openbsd)) }}
+    defaults:
+      run:
+        shell: cpa.sh {0}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Work out version and check for an existing release
+        id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REVISION: ${{ inputs.revision }}
+        run: |
+          v=$INPUT_VERSION
+          if [ -z "$v" ] && [ "$GITHUB_REF_TYPE" = tag ]; then
+            v=$GITHUB_REF_NAME
+          fi
+          if [ -z "$v" ]; then
+            v=$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)
+          fi
+          # findingsd has no version tags yet
+          [ -n "$v" ] || v=0.0.1
+          v=${v#v}
+          if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+            echo "need a version like 0.0.1 (input or a v* tag), got: '$v'" >&2
+            exit 1
+          fi
+
+          r=${INPUT_REVISION#p}
+          if [ -n "$r" ]; then
+            if ! [[ "$r" =~ ^[0-9]+$ ]]; then
+              echo "revision must be a number like 0 or p0, got: $INPUT_REVISION" >&2
+              exit 1
+            fi
+            v="${v}p${r}"
+          fi
+
+          tag=findingsd-$v-openbsd-${{ matrix.openbsd }}
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "asset=findingsd-$v.tgz" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release $tag exists, skipping"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: cross-platform-actions/action@v1.7.0
+        if: steps.check.outputs.exists != 'true'
+        with:
+          operating_system: openbsd
+          architecture: x86-64
+          version: ${{ matrix.openbsd }}
+
+      - name: Build and smoke test
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          set -e
+          uname -a
+          sudo pkg_add libmemcached mariadb-client
+          LDFLAGS='-lssl -lm' make
+          ldd ./findingsd
+          set +e
+          ./findingsd -Z > /tmp/smoke.out 2>&1
+          rc=$?
+          set -e
+          cat /tmp/smoke.out
+          [ "$rc" -eq 1 ] || { echo "expected exit 1 from -Z, got $rc" >&2; exit 1; }
+          grep -q '^usage: findingsd ' /tmp/smoke.out || { echo "no usage line" >&2; exit 1; }
+
+      - name: Create package
+        if: steps.check.outputs.exists != 'true'
+        run: |
+          set -e
+          ws=$PWD
+          v="${{ steps.check.outputs.version }}"
+          asset="${{ steps.check.outputs.asset }}"
+          work=/tmp/pkgwork
+          fake=$work/fake
+          sudo rm -rf $work
+          mkdir -p $work
+
+          # Binary and rc script as in the manual install, plus the README and
+          # the SQL schema for the findings table.
+          sudo install -d -o root -g wheel $fake/usr/local/sbin $fake/etc/rc.d \
+            $fake/usr/local/share/doc/findingsd $fake/usr/local/share/findingsd
+          sudo install -c -s -o root -g bin -m 555 findingsd $fake/usr/local/sbin/findingsd
+          sudo install -c -o root -g wheel -m 555 findingsd.rc $fake/etc/rc.d/findingsd
+          sudo install -c -o root -g bin -m 444 README.md $fake/usr/local/share/doc/findingsd/README.md
+          sudo install -c -o root -g bin -m 444 findingsd.sql $fake/usr/local/share/findingsd/findingsd.sql
+
+          # Depend on the packages we built against, so pkg_add pulls them in.
+          memc=$(pkg_info | awk '$1 ~ /^libmemcached-[0-9]/ {print $1; exit}')
+          mdb=$(pkg_info | awk '$1 ~ /^mariadb-client-[0-9]/ {print $1; exit}')
+          [ -n "$memc" ] || { echo "libmemcached not installed?" >&2; exit 1; }
+          [ -n "$mdb" ] || { echo "mariadb-client not installed?" >&2; exit 1; }
+
+          cat > $work/plist <<EOF
+          @depend devel/libmemcached:libmemcached-*:$memc
+          @depend databases/mariadb,-main:mariadb-client-*:$mdb
+          @bin sbin/findingsd
+          share/doc/findingsd/
+          share/doc/findingsd/README.md
+          share/findingsd/
+          share/findingsd/findingsd.sql
+          @rcscript /etc/rc.d/findingsd
+          EOF
+          sed -i 's/^[[:space:]]*//' $work/plist
+
+          cat > $work/desc <<EOF
+          findingsd watches a pflog interface and records the services that
+          players discover into a MySQL/MariaDB table, for echoCTF. The table
+          schema is in share/findingsd/findingsd.sql.
+
+          Built from https://github.com/$GITHUB_REPOSITORY at $GITHUB_SHA.
+          EOF
+          sed -i 's/^[[:space:]]*//' $work/desc
+
+          cat $work/plist
+          cd $work
+          sudo pkg_create \
+            -A "$(arch -s)" \
+            -D COMMENT="daemon tracking services discovered by echoCTF players" \
+            -D FULLPKGPATH=net/findingsd \
+            -d $work/desc \
+            -f $work/plist \
+            -B $fake \
+            -p /usr/local \
+            $work/findingsd-$v.tgz
+          ls -l $work/findingsd-$v.tgz
+
+          # Prove pkg_add accepts it (name consistency, deps, rc script), then remove it.
+          sudo pkg_add -D unsigned $work/findingsd-$v.tgz
+          pkg_info -L findingsd
+          sudo pkg_delete findingsd
+
+          cp $work/findingsd-$v.tgz $ws/$asset
+          ls -l $ws/$asset
+
+      - name: Release
+        if: steps.check.outputs.exists != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum ${{ steps.check.outputs.asset }}
+          gh release create "${{ steps.check.outputs.tag }}" ${{ steps.check.outputs.asset }} \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "findingsd ${{ steps.check.outputs.version }} package (OpenBSD ${{ matrix.openbsd }})" \
+            --notes "Built from $GITHUB_SHA. Install with: pkg_add -D unsigned ./${{ steps.check.outputs.asset }} && rcctl enable findingsd"
